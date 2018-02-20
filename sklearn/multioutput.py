@@ -372,6 +372,7 @@ class _BaseChain(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.order = order
         self.cv = cv
         self.random_state = random_state
+        self.n_classes_ = 1
 
     @abstractmethod
     def fit(self, X, Y):
@@ -381,7 +382,7 @@ class _BaseChain(six.with_metaclass(ABCMeta, BaseEstimator)):
         ----------
         X : {array-like, sparse matrix}, shape (n_samples, n_features)
             The input data.
-        Y : array-like, shape (n_samples, n_classes)
+        Y : array-like, shape (n_samples, n_classes) or (n_samples, n_outputs)
             The target values.
 
         Returns
@@ -447,7 +448,7 @@ class _BaseChain(six.with_metaclass(ABCMeta, BaseEstimator)):
 
         Returns
         -------
-        Y_pred : array-like, shape (n_samples, n_classes)
+        Y_pred : array-like, shape (n_samples, n_classes) or (n_samples, n_outputs)
             The predicted values.
 
         """
@@ -472,7 +473,7 @@ class _BaseChain(six.with_metaclass(ABCMeta, BaseEstimator)):
 
 
 class ClassifierChain(_BaseChain, ClassifierMixin, MetaEstimatorMixin):
-    """A multi-label model that arranges binary classifiers into a chain.
+    """A multi-label model that arranges classifiers into a chain.
 
     Each model makes a prediction in the order specified by the chain using
     all of the available features provided to the model plus the predictions
@@ -551,7 +552,7 @@ class ClassifierChain(_BaseChain, ClassifierMixin, MetaEstimatorMixin):
         ----------
         X : {array-like, sparse matrix}, shape (n_samples, n_features)
             The input data.
-        Y : array-like, shape (n_samples, n_classes)
+        Y : array-like, shape (n_samples, n_outputs)
             The target values.
 
         Returns
@@ -574,10 +575,11 @@ class ClassifierChain(_BaseChain, ClassifierMixin, MetaEstimatorMixin):
 
         Returns
         -------
-        Y_prob : array-like, shape (n_samples, n_classes)
+        Y_prob : list of array-like, shape (n_outputs, n_samples, n_classes)
         """
         X = check_array(X, accept_sparse=True)
-        Y_prob_chain = np.zeros((X.shape[0], len(self.estimators_)))
+        Y_prob_chain = [np.zeros((X.shape[0], len(self.classes_[i])))
+                        for i in range(len(self.estimators_))]
         Y_pred_chain = np.zeros((X.shape[0], len(self.estimators_)))
         for chain_idx, estimator in enumerate(self.estimators_):
             previous_predictions = Y_pred_chain[:, :chain_idx]
@@ -585,11 +587,11 @@ class ClassifierChain(_BaseChain, ClassifierMixin, MetaEstimatorMixin):
                 X_aug = sp.hstack((X, previous_predictions))
             else:
                 X_aug = np.hstack((X, previous_predictions))
-            Y_prob_chain[:, chain_idx] = estimator.predict_proba(X_aug)[:, 1]
+            Y_prob_chain[chain_idx] = estimator.predict_proba(X_aug)
             Y_pred_chain[:, chain_idx] = estimator.predict(X_aug)
         inv_order = np.empty_like(self.order_)
         inv_order[self.order_] = np.arange(len(self.order_))
-        Y_prob = Y_prob_chain[:, inv_order]
+        Y_prob = [Y_prob_chain[i] for i in inv_order]
 
         return Y_prob
 
@@ -603,11 +605,12 @@ class ClassifierChain(_BaseChain, ClassifierMixin, MetaEstimatorMixin):
 
         Returns
         -------
-        Y_decision : array-like, shape (n_samples, n_classes )
+        Y_decision : array-like, shape (n_outputs, n_samples, n_classes)
             Returns the decision function of the sample for each model
             in the chain.
         """
-        Y_decision_chain = np.zeros((X.shape[0], len(self.estimators_)))
+        Y_decision_chain = [np.zeros((X.shape[0], len(self.classes_[i])))
+                            for i in range(len(self.estimators_))]
         Y_pred_chain = np.zeros((X.shape[0], len(self.estimators_)))
         for chain_idx, estimator in enumerate(self.estimators_):
             previous_predictions = Y_pred_chain[:, :chain_idx]
@@ -615,12 +618,12 @@ class ClassifierChain(_BaseChain, ClassifierMixin, MetaEstimatorMixin):
                 X_aug = sp.hstack((X, previous_predictions))
             else:
                 X_aug = np.hstack((X, previous_predictions))
-            Y_decision_chain[:, chain_idx] = estimator.decision_function(X_aug)
+            Y_decision_chain[chain_idx] = estimator.decision_function(X_aug)
             Y_pred_chain[:, chain_idx] = estimator.predict(X_aug)
 
         inv_order = np.empty_like(self.order_)
         inv_order[self.order_] = np.arange(len(self.order_))
-        Y_decision = Y_decision_chain[:, inv_order]
+        Y_decision = [Y_decision_chain[i] for i in inv_order]
 
         return Y_decision
 
